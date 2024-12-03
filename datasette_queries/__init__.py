@@ -112,6 +112,8 @@ async def suggest_metadata(request, datasette):
 
 
 async def save_query(datasette, request):
+    if not await datasette.permission_allowed(request.actor, "datasette-queries"):
+        return Response.text("Permission denied", status=403)
     if request.method != "POST":
         return Response.json({"error": "POST request required"}, status=400)
     post_data = await request.post_vars()
@@ -139,7 +141,7 @@ async def save_query(datasette, request):
         values
             (:slug, :title, :description, :sql, {actor}, :created_at)
     """.format(
-            actor="{actor}" if request.actor else "null"
+            actor=":actor" if request.actor else "null"
         ),
         {
             "slug": url,
@@ -166,7 +168,9 @@ def register_routes():
 @hookimpl
 def top_query(datasette, request, database, sql):
     async def inner():
-        if sql:
+        if sql and await datasette.permission_allowed(
+            request.actor, "datasette-queries"
+        ):
             return await datasette.render_template(
                 "_datasette_queries_top.html",
                 {

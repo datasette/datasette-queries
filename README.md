@@ -15,9 +15,9 @@ datasette install datasette-queries
 ```
 ## Usage
 
-Users will see a new UI element on the results of a SQL query inviting them to save that query.
+Users with the `datasette-queries` permission will see a new UI element on the results of a SQL query inviting them to save that query.
 
-Saved queries (treated as [canned queries](https://docs.datasette.io/en/stable/sql_queries.html#canned-queries)) are shown as a list on the database page.
+Saved queries (treated as [canned queries](https://docs.datasette.io/en/stable/sql_queries.html#canned-queries)) are then shown as a list on the database page.
 
 ## Development
 
