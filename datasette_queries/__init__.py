@@ -8,11 +8,19 @@ import time
 
 migration = Migrations("datasette-queries")
 
+
 @migration()
 def create_table(db):
     db["_datasette_queries"].create(
-        {"slug": str, "title": str, "description": str, "sql": str, "actor": str, "created_at": int},
-        pk="slug"
+        {
+            "slug": str,
+            "title": str,
+            "description": str,
+            "sql": str,
+            "actor": str,
+            "created_at": int,
+        },
+        pk="slug",
     )
 
 
@@ -31,6 +39,7 @@ Return the suggested title and description as JSON:
 ```
 """
 
+
 @hookimpl
 def canned_queries(datasette, database):
     async def inner():
@@ -41,11 +50,13 @@ def canned_queries(datasette, database):
                     "sql": row["sql"],
                     "title": row["title"],
                     "description": row["description"],
-                } for row in await db.execute("select * from _datasette_queries")
+                }
+                for row in await db.execute("select * from _datasette_queries")
             }
             return queries
 
     return inner
+
 
 def extract_json(text):
     try:
@@ -58,7 +69,7 @@ def extract_json(text):
 
 
 def slugify(text):
-    return '-'.join(text.lower().split())
+    return "-".join(text.lower().split())
 
 
 async def suggest_metadata(request, datasette):
@@ -105,7 +116,9 @@ async def save_query(datasette, request):
         return Response.json({"error": "POST request required"}, status=400)
     post_data = await request.post_vars()
     if "sql" not in post_data or "database" not in post_data or "url" not in post_data:
-        datasette.add_message(request, "sql and database and url parameters required", datasette.ERROR)
+        datasette.add_message(
+            request, "sql and database and url parameters required", datasette.ERROR
+        )
         Response.redirect("/")
     sql = post_data["sql"]
     url = post_data["url"]
@@ -119,21 +132,26 @@ async def save_query(datasette, request):
     await db.execute_write_fn(lambda conn: migration.apply(Database(conn)))
 
     # TODO: Check if URL exists already
-    await db.execute_write("""
+    await db.execute_write(
+        """
         insert into _datasette_queries
             (slug, title, description, sql, actor, created_at)
         values
             (:slug, :title, :description, :sql, {actor}, :created_at)
-    """.format(actor = "{actor}" if request.actor else "null"), {
-        "slug": url,
-        "title": post_data.get("title", ""),
-        "description": post_data.get("description", ""),
-        "sql": sql,
-        "actor": request.actor["id"] if request.actor else None,
-        "created_at": int(time.time())
-    })
+    """.format(
+            actor="{actor}" if request.actor else "null"
+        ),
+        {
+            "slug": url,
+            "title": post_data.get("title", ""),
+            "description": post_data.get("description", ""),
+            "sql": sql,
+            "actor": request.actor["id"] if request.actor else None,
+            "created_at": int(time.time()),
+        },
+    )
     datasette.add_message(request, f"Query saved as {url}", datasette.INFO)
-    return Response.redirect(datasette.urls.database(database) + '/' + url)
+    return Response.redirect(datasette.urls.database(database) + "/" + url)
 
 
 @hookimpl
@@ -149,8 +167,13 @@ def register_routes():
 def top_query(datasette, request, database, sql):
     async def inner():
         if sql:
-            return await datasette.render_template("_datasette_queries_top.html", {
-                "sql": sql,
-                "database": database,
-            }, request=request)
+            return await datasette.render_template(
+                "_datasette_queries_top.html",
+                {
+                    "sql": sql,
+                    "database": database,
+                },
+                request=request,
+            )
+
     return inner
