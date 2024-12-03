@@ -1,0 +1,208 @@
+<style>
+.grid-form {
+  line-height: 1.6;
+  max-width: 800px;
+  background-color: white;
+  padding: 1.5rem;
+  border-radius: 8px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-sizing: border-box;
+
+  & * {
+    box-sizing: border-box;
+  }
+
+  & .form-grid {
+    display: grid;
+    grid-template-columns: 8em 1fr;
+    gap: 1rem;
+    align-items: start;
+  }
+
+  & label {
+    font-weight: 500;
+    color: #333;
+  }
+
+  & input[type="text"],
+  & textarea {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    font-size: 1rem;
+    transition: border-color 0.2s;
+
+    &:focus {
+      outline: none;
+      border-color: #4a90e2;
+      box-shadow: 0 0 0 2px rgba(74, 144, 226, 0.1);
+    }
+  }
+
+  & textarea {
+    min-height: 100px;
+    resize: vertical;
+  }
+
+  & .submit-container {
+    grid-column: 2;
+    margin-top: 0.5rem;
+  }
+
+  & button {
+    background-color: #4a90e2;
+    color: white;
+    border: none;
+    padding: 0.5rem 1.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1rem;
+    transition: background-color 0.2s;
+
+    &:hover {
+      background-color: #357abd;
+    }
+  }
+
+  @media (max-width: 600px) {
+    padding: 1rem;
+
+    & .form-grid {
+      grid-template-columns: 1fr;
+      gap: 0.75rem;
+    }
+
+    & .submit-container {
+      grid-column: 1;
+    }
+  }
+}
+</style>
+<details class="save-this-query"><summary>Save this query</summary>
+    <div class="grid-form">
+        <p style="margin-top: 0.5em">Saved queries can be used by everyone else with access to the <strong>{{ database }}</strong> database.</p>
+        <form class="core" action="{{ urls.path("/-/save-query") }}" method="post">
+            <div class="form-grid">
+                <label for="title">Title</label>
+                <div>
+                    <input type="text" id="title" name="title" required>
+                    <a href="#" id="suggest-title" style="text-decoration: none">Suggest title and description ✨</a>
+                </div>
+
+                <label for="url">URL</label>
+                <input type="text" id="url" name="url" required>
+
+                <label for="description">Description</label>
+                <textarea id="description" name="description"></textarea>
+
+                <div class="submit-container">
+                    <button type="submit">Save query</button>
+                </div>
+            </div>
+            <input type="hidden" name="sql" value="{{ sql }}">
+            <input type="hidden" name="csrftoken" value="{{ csrftoken() }}">
+            <input type="hidden" name="database" value="{{ database }}">
+        </form>
+    </div>
+</details>
+<script>
+const details = document.querySelector('details.save-this-query');
+const titleInput = document.querySelector('#title');
+const urlInput = document.querySelector('#url');
+details.addEventListener('toggle', () => {
+    if (details.open) {
+        titleInput.focus();
+    }
+});
+let urlManuallyEdited = false;
+
+// Function to convert title to URL-friendly slug
+function generateSlug(text) {
+    return text
+        .toLowerCase()
+        .replace(/[^a-z0-9\\s-]/g, '') // Remove non-alphanumeric chars (except spaces and hyphens)
+        .replace(/\\s+/g, '-')         // Replace spaces with hyphens
+        .replace(/-+/g, '-')          // Replace multiple hyphens with single hyphen
+        .trim();                      // Remove leading/trailing spaces
+}
+
+// Listen for changes to the title field
+titleInput.addEventListener('input', () => {
+    if (!urlManuallyEdited) {
+        urlInput.value = generateSlug(titleInput.value);
+    }
+});
+
+// Detect manual URL edits
+urlInput.addEventListener('input', (e) => {
+    // Only mark as manually edited if the change wasn't from our script
+    if (e.inputType) {  // inputType exists for real user input
+        urlManuallyEdited = true;
+    }
+    // Unless they blank it out
+    if (urlInput.value === '') {
+        urlManuallyEdited = false;
+    }
+});
+
+async function fetchSuggestions(sql) {
+  try {
+    const csrfToken = document.querySelector('[name="csrftoken"]').value;
+    const formData = new URLSearchParams();
+    formData.append('sql', sql);
+    formData.append('csrftoken', csrfToken);
+    const response = await fetch('/content/-/suggest-title-and-description', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: formData.toString()
+    });
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+    const data = await response.json();
+    return data;
+  } catch (error) {
+    console.error('Error fetching suggestions:', error);
+    throw error;
+  }
+}
+
+// Get the suggest link element
+const suggestLink = document.getElementById('suggest-title');
+const originalText = suggestLink.innerText; // Save original text
+
+// Add click event listener
+suggestLink.addEventListener('click', async (e) => {
+  e.preventDefault(); // Prevent default link behavior
+
+  // Disable the link and show loading state
+  suggestLink.style.pointerEvents = 'none';
+  suggestLink.innerHTML = 'Suggesting...';
+
+  try {
+    // Get SQL value from textarea
+    const sql = document.querySelector('textarea[name="sql"]').value;
+
+    // Call the fetchSuggestions function
+    const suggestions = await fetchSuggestions(sql);
+
+    // Update form fields with returned data
+    document.querySelector('input[name="title"]').value = suggestions.title || '';
+    document.querySelector('textarea[name="description"]').value = suggestions.description || '';
+    document.querySelector('input[name="url"]').value = suggestions.url || '';
+
+    // Reset link state
+    suggestLink.innerHTML = originalText;
+    suggestLink.style.pointerEvents = 'auto';
+    suggestLink.style.color = ''; // Reset to default color
+  } catch (error) {
+    // Handle error state
+    suggestLink.innerHTML = error.message;
+    suggestLink.style.color = 'red';
+    suggestLink.style.pointerEvents = 'auto'; // Re-enable link to allow retry
+  }
+});
+</script>
