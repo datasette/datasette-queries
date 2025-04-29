@@ -114,7 +114,6 @@ async def suggest_metadata(request, datasette):
 
 
 async def delete_query(datasette, request):
-    print(4)
     if not await datasette.permission_allowed(request.actor, "datasette-queries"):
         return Response.text("Permission denied", status=403)
     if request.method != "POST":
