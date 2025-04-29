@@ -14,6 +14,7 @@ def create_table(db):
     db["_datasette_queries"].create(
         {
             "slug": str,
+            "database": str,
             "title": str,
             "description": str,
             "sql": str,
@@ -22,6 +23,7 @@ def create_table(db):
         },
         pk="slug",
     )
+    db["_datasette_queries"].create_index(["slug", "database"], unique=True)
 
 
 PROMPT = """
@@ -43,15 +45,15 @@ Return the suggested title and description as JSON:
 @hookimpl
 def canned_queries(datasette, database):
     async def inner():
-        db = datasette.get_database(database)
-        if await db.table_exists("_datasette_queries"):
+        internal_db = datasette.get_internal_database()
+        if await internal_db.table_exists("_datasette_queries"):
             queries = {
                 row["slug"]: {
                     "sql": row["sql"],
                     "title": row["title"],
                     "description": row["description"],
                 }
-                for row in await db.execute("select * from _datasette_queries")
+                for row in await internal_db.execute("select * from _datasette_queries where database = ?", [database])
             }
             return queries
 
@@ -72,7 +74,7 @@ def slugify(text):
     return "-".join(text.lower().split())
 
 
-async def suggest_metadata(request, datasette):
+async def suggest_metadata(request, datasette):    
     if request.method != "POST":
         return Response.json({"error": "POST request required"}, status=400)
     post_data = await request.post_vars()
@@ -111,6 +113,31 @@ async def suggest_metadata(request, datasette):
         )
 
 
+async def delete_query(datasette, request):
+    print(4)
+    if not await datasette.permission_allowed(request.actor, "datasette-queries"):
+        return Response.text("Permission denied", status=403)
+    if request.method != "POST":
+        return Response.json({"error": "POST request required"}, status=400)
+    data = json.loads((await request.post_body()).decode("utf8"))
+    if "query_name" not in data or "db_name" not in data:
+        return Response.redirect("/")
+    query_name = data["query_name"]
+    db_name = data["db_name"]
+
+    await datasette.get_internal_database().execute_write(
+        """
+          delete from _datasette_queries
+          where slug = :slug and database = :database
+        """,
+        {
+            "slug": query_name,
+            "database": db_name,
+        },
+    )
+    #datasette.add_message(request, f"Query saved as {url}", datasette.INFO)
+    return Response.redirect(datasette.urls.database(db_name) + "/")
+
 async def save_query(datasette, request):
     if not await datasette.permission_allowed(request.actor, "datasette-queries"):
         return Response.text("Permission denied", status=403)
@@ -131,20 +158,21 @@ async def save_query(datasette, request):
         datasette.add_message(request, f"Database not found", datasette.ERROR)
         return Response.redirect("/")
     # Run migrations
-    await db.execute_write_fn(lambda conn: migration.apply(Database(conn)))
+    await datasette.get_internal_database().execute_write_fn(lambda conn: migration.apply(Database(conn)))
 
     # TODO: Check if URL exists already
-    await db.execute_write(
+    await datasette.get_internal_database().execute_write(
         """
         insert into _datasette_queries
-            (slug, title, description, sql, actor, created_at)
+            (slug, database, title, description, sql, actor, created_at)
         values
-            (:slug, :title, :description, :sql, {actor}, :created_at)
+            (:slug, :database, :title, :description, :sql, {actor}, :created_at)
     """.format(
             actor=":actor" if request.actor else "null"
         ),
         {
             "slug": url,
+            "database": database,
             "title": post_data.get("title", ""),
             "description": post_data.get("description", ""),
             "sql": sql,
@@ -155,11 +183,11 @@ async def save_query(datasette, request):
     datasette.add_message(request, f"Query saved as {url}", datasette.INFO)
     return Response.redirect(datasette.urls.database(database) + "/" + url)
 
-
 @hookimpl
 def register_routes():
     return [
         (r"^/(?P<database>[^/]+)/-/suggest-title-and-description$", suggest_metadata),
+        (r"^/(?P<database>[^/]+)/-/datasette-queries/delete-query$", delete_query),
         # /-/save-query
         (r"^/-/save-query$", save_query),
     ]
@@ -181,3 +209,41 @@ def top_query(datasette, request, database, sql):
             )
 
     return inner
+
+@hookimpl
+def query_actions(datasette, actor, database, query_name, request, sql, params):
+    if query_name is None:
+        return []
+    db_name = database
+    js = f"""
+    
+    function run() {{
+        const queryName={json.dumps(query_name)};
+        const dbName={json.dumps(db_name)};
+        if (confirm("Are you sure you want to delete this query?")) {{
+            fetch(`{datasette.urls.database(database)}/-/datasette-queries/delete-query`, {{
+                method: "POST",
+                headers: {{
+                    "Content-Type": "application/json",
+                }},
+                body: JSON.stringify({{
+                    query_name: queryName,
+                    db_name: dbName
+                }})
+
+            }}).then(response => {{
+                if (response.ok) {{
+                    
+                }} else {{
+                    alert("Failed to delete query");
+                }}
+            }});
+        }}
+    }}
+    run();
+    """
+    return [{
+        "label": "Delete query",
+        "description": "",
+        "href": f"javascript:{(js)}",
+    }]

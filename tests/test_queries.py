@@ -49,3 +49,35 @@ async def test_save_query(tmpdir, authed):
     response3 = await datasette.client.get("/data/select-21.json?_shape=array")
     data = response3.json()
     assert data == [{"21": 21}]
+    assert (
+        await datasette.get_internal_database().execute(
+            "select actor, database, slug, description, sql from _datasette_queries"
+        )
+    ).dicts() == [
+        {
+            "actor": "user",
+            "database": "data",
+            "description": "",
+            "slug": "select-21",
+            "sql": "select 21",
+        },
+    ]
+
+    response4 = await datasette.client.post(
+        "/data/-/datasette-queries/delete-query",
+        data={
+            "db_name": "data",
+            "query_name": "select-21",
+            "csrftoken": csrftoken,
+        },
+        cookies=cookies,
+    )
+    assert response4.status_code == 302
+
+    assert (
+        await datasette.get_internal_database().execute(
+            "select actor, database, slug, description, sql from _datasette_queries"
+        )
+    ).dicts() == []
+
+    
