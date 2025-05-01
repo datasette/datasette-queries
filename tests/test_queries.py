@@ -65,7 +65,7 @@ async def test_save_query(tmpdir, authed):
 
     response4 = await datasette.client.post(
         "/data/-/datasette-queries/delete-query",
-        data={
+        json={
             "db_name": "data",
             "query_name": "select-21",
             "csrftoken": csrftoken,
