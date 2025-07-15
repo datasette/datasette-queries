@@ -1,5 +1,4 @@
 from datasette import hookimpl, Response
-from datasette_llm_usage import LLM
 from markupsafe import escape
 from sqlite_migrate import Migrations
 from sqlite_utils import Database
@@ -26,22 +25,6 @@ def create_table(db):
     db["_datasette_queries"].create_index(["slug", "database"], unique=True)
 
 
-PROMPT = """
-Suggest a title and description for this new SQL query.
-
-The database is called "{database}" and it contains tables: {table_names}.
-
-The SQL query is: {sql}
-
-The title should be in "Sentence case". The description should be quite short.
-
-Return the suggested title and description as JSON:
-```json
-{{"title": "Suggested title", "description": "Suggested description"}}
-```
-"""
-
-
 @hookimpl
 def canned_queries(datasette, database):
     async def inner():
@@ -53,7 +36,9 @@ def canned_queries(datasette, database):
                     "title": row["title"],
                     "description": row["description"],
                 }
-                for row in await internal_db.execute("select * from _datasette_queries where database = ?", [database])
+                for row in await internal_db.execute(
+                    "select * from _datasette_queries where database = ?", [database]
+                )
             }
             return queries
 
@@ -72,45 +57,6 @@ def extract_json(text):
 
 def slugify(text):
     return "-".join(text.lower().split())
-
-
-async def suggest_metadata(request, datasette):    
-    if request.method != "POST":
-        return Response.json({"error": "POST request required"}, status=400)
-    post_data = await request.post_vars()
-    if "sql" not in post_data:
-        return Response.json({"error": "sql parameter required"}, status=400)
-    sql = post_data["sql"]
-    llm = LLM(datasette)
-    database = request.url_vars["database"]
-    db = datasette.get_database(database)
-    table_names = await db.table_names()
-    prompt = PROMPT.format(
-        table_names=" ".join(table_names),
-        database=database,
-        sql=sql,
-    )
-    model = llm.get_async_model("gpt-4o-mini")
-    completion = await model.prompt(prompt, json_object=True, max_tokens=250)
-    text = await completion.text()
-    json_data = extract_json(text)
-    if json_data:
-        return Response.json(
-            dict(
-                json_data,
-                url=slugify(json_data["title"]),
-                usage=dict((await completion.usage()).__dict__),
-                duration=await completion.duration_ms(),
-                prompt=prompt,
-            )
-        )
-    else:
-        return Response.json(
-            {
-                "error": "No JSON data found in completion",
-            },
-            status=400,
-        )
 
 
 async def delete_query(datasette, request):
@@ -134,8 +80,9 @@ async def delete_query(datasette, request):
             "database": db_name,
         },
     )
-    #datasette.add_message(request, f"Query saved as {url}", datasette.INFO)
+    # datasette.add_message(request, f"Query saved as {url}", datasette.INFO)
     return Response.redirect(datasette.urls.database(db_name) + "/")
+
 
 async def save_query(datasette, request):
     if not await datasette.permission_allowed(request.actor, "datasette-queries"):
@@ -157,7 +104,9 @@ async def save_query(datasette, request):
         datasette.add_message(request, f"Database not found", datasette.ERROR)
         return Response.redirect("/")
     # Run migrations
-    await datasette.get_internal_database().execute_write_fn(lambda conn: migration.apply(Database(conn)))
+    await datasette.get_internal_database().execute_write_fn(
+        lambda conn: migration.apply(Database(conn))
+    )
 
     # TODO: Check if URL exists already
     await datasette.get_internal_database().execute_write(
@@ -182,10 +131,10 @@ async def save_query(datasette, request):
     datasette.add_message(request, f"Query saved as {url}", datasette.INFO)
     return Response.redirect(datasette.urls.database(database) + "/" + url)
 
+
 @hookimpl
 def register_routes():
     return [
-        (r"^/(?P<database>[^/]+)/-/suggest-title-and-description$", suggest_metadata),
         (r"^/(?P<database>[^/]+)/-/datasette-queries/delete-query$", delete_query),
         # /-/save-query
         (r"^/-/save-query$", save_query),
@@ -209,13 +158,14 @@ def top_query(datasette, request, database, sql):
 
     return inner
 
+
 @hookimpl
 def query_actions(datasette, actor, database, query_name, request, sql, params):
     if query_name is None:
         return []
     db_name = database
     js = f"""
-    
+
     function run() {{
         const queryName={json.dumps(query_name)};
         const dbName={json.dumps(db_name)};
@@ -232,7 +182,7 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
 
             }}).then(response => {{
                 if (response.ok) {{
-                    
+
                 }} else {{
                     alert("Failed to delete query");
                 }}
@@ -241,8 +191,10 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
     }}
     run();
     """
-    return [{
-        "label": "Delete query",
-        "description": "",
-        "href": f"javascript:{(js)}",
-    }]
+    return [
+        {
+            "label": "Delete query",
+            "description": "",
+            "href": f"javascript:{(js)}",
+        }
+    ]

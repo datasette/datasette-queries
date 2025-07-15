@@ -4,15 +4,13 @@ version = "0.1a1"
 description = "Save SQL queries in Datasette"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
-license = {text = "Apache-2.0"}
+license = "Apache-2.0"
 classifiers=[
-    "Framework :: Datasette",
-    "License :: OSI Approved :: Apache Software License"
+    "Framework :: Datasette"
 ]
 requires-python = ">=3.9"
 dependencies = [
-    "datasette>=1.0a16",
-    "datasette-llm-usage>=0.1a0",
+    "datasette>=1.0a16"
 ]
 
 [build-system]

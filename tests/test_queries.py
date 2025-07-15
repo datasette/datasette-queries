@@ -79,5 +79,3 @@ async def test_save_query(tmpdir, authed):
             "select actor, database, slug, description, sql from _datasette_queries"
         )
     ).dicts() == []
-
-    

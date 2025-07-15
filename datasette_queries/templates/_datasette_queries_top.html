@@ -87,7 +87,6 @@
                 <label for="title">Title</label>
                 <div>
                     <input type="text" id="title" name="title" required>
-                    <a href="#" id="suggest-title" style="text-decoration: none">Suggest title and description ✨</a>
                 </div>
 
                 <label for="url">URL</label>
@@ -144,65 +143,5 @@ urlInput.addEventListener('input', (e) => {
     if (urlInput.value === '') {
         urlManuallyEdited = false;
     }
-});
-
-async function fetchSuggestions(sql) {
-  try {
-    const csrfToken = document.querySelector('[name="csrftoken"]').value;
-    const formData = new URLSearchParams();
-    formData.append('sql', sql);
-    formData.append('csrftoken', csrfToken);
-    const response = await fetch('/content/-/suggest-title-and-description', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: formData.toString()
-    });
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const data = await response.json();
-    return data;
-  } catch (error) {
-    console.error('Error fetching suggestions:', error);
-    throw error;
-  }
-}
-
-// Get the suggest link element
-const suggestLink = document.getElementById('suggest-title');
-const originalText = suggestLink.innerText; // Save original text
-
-// Add click event listener
-suggestLink.addEventListener('click', async (e) => {
-  e.preventDefault(); // Prevent default link behavior
-
-  // Disable the link and show loading state
-  suggestLink.style.pointerEvents = 'none';
-  suggestLink.innerHTML = 'Suggesting...';
-
-  try {
-    // Get SQL value from textarea
-    const sql = document.querySelector('textarea[name="sql"]').value;
-
-    // Call the fetchSuggestions function
-    const suggestions = await fetchSuggestions(sql);
-
-    // Update form fields with returned data
-    document.querySelector('input[name="title"]').value = suggestions.title || '';
-    document.querySelector('textarea[name="description"]').value = suggestions.description || '';
-    document.querySelector('input[name="url"]').value = suggestions.url || '';
-
-    // Reset link state
-    suggestLink.innerHTML = originalText;
-    suggestLink.style.pointerEvents = 'auto';
-    suggestLink.style.color = ''; // Reset to default color
-  } catch (error) {
-    // Handle error state
-    suggestLink.innerHTML = error.message;
-    suggestLink.style.color = 'red';
-    suggestLink.style.pointerEvents = 'auto'; // Re-enable link to allow retry
-  }
 });
 </script>
