@@ -10,6 +10,8 @@ migration = Migrations("datasette-queries")
 
 @migration()
 def create_table(db):
+    if db["_datasette_queries"].exists():
+        return
     db["_datasette_queries"].create(
         {
             "slug": str,
