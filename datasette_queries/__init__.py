@@ -82,8 +82,13 @@ async def delete_query(datasette, request):
             "database": db_name,
         },
     )
-    # datasette.add_message(request, f"Query saved as {url}", datasette.INFO)
-    return Response.redirect(datasette.urls.database(db_name) + "/")
+    datasette.add_message(request, f"Query deleted: {query_name}", datasette.WARNING)
+    redirect_path = datasette.urls.database(db_name)
+    if request.args.get("fetch"):
+        return Response.json(
+            {"message": "Query deleted", "redirect_path": redirect_path}
+        )
+    return Response.redirect(redirect_path)
 
 
 async def save_query(datasette, request):
@@ -172,7 +177,7 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
         const queryName={json.dumps(query_name)};
         const dbName={json.dumps(db_name)};
         if (confirm("Are you sure you want to delete this query?")) {{
-            fetch(`{datasette.urls.database(database)}/-/datasette-queries/delete-query`, {{
+            fetch(`{datasette.urls.database(database)}/-/datasette-queries/delete-query?fetch=1`, {{
                 method: "POST",
                 headers: {{
                     "Content-Type": "application/json",
@@ -184,7 +189,9 @@ def query_actions(datasette, actor, database, query_name, request, sql, params):
 
             }}).then(response => {{
                 if (response.ok) {{
-
+                    response.text().then(text => {{
+                        window.location.href = JSON.parse(text).redirect_path;
+                    }});
                 }} else {{
                     alert("Failed to delete query");
                 }}
