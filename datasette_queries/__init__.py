@@ -1,4 +1,3 @@
-from idlelib.textview import view_file
 from datasette import hookimpl, Response
 from markupsafe import escape
 from sqlite_migrate import Migrations
