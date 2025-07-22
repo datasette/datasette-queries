@@ -1,3 +1,4 @@
+from idlelib.textview import view_file
 from datasette import hookimpl, Response
 from markupsafe import escape
 from sqlite_migrate import Migrations
@@ -115,7 +116,34 @@ async def save_query(datasette, request):
         lambda conn: migration.apply(Database(conn))
     )
 
-    # TODO: Check if URL exists already
+    # Check if URL exists already for this database
+    db = datasette.get_database(database)
+
+    async def url_in_use(url):
+        if await db.table_exists(url):
+            return True
+        if await db.view_exists(url):
+            return True
+        return (
+            len(
+                (
+                    await datasette.get_internal_database().execute(
+                        "select 1 from _datasette_queries where slug = ?", [url]
+                    )
+                ).rows
+            )
+            > 0
+        )
+
+    prefix = 1
+    original_url = url
+    while await url_in_use(url):
+        prefix += 1
+        url = f"{original_url}_{prefix}"
+        if prefix > 100:
+            datasette.add_message(request, "URL is not available", datasette.ERROR)
+            return Response.redirect("/")
+
     await datasette.get_internal_database().execute_write(
         """
         insert into _datasette_queries
