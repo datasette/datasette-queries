@@ -72,6 +72,15 @@ async def delete_query(datasette, request):
     query_name = data["query_name"]
     db_name = data["db_name"]
 
+    # Make sure the query exists
+    internal_db = datasette.get_internal_database()
+    query_exists = await internal_db.execute(
+        "select 1 from _datasette_queries where slug = ? and database = ?",
+        [query_name, db_name],
+    )
+    if not query_exists.rows:
+        return Response.text("Query not found", status=403)
+
     await datasette.get_internal_database().execute_write(
         """
           delete from _datasette_queries
@@ -89,6 +98,16 @@ async def delete_query(datasette, request):
             {"message": "Query deleted", "redirect_path": redirect_path}
         )
     return Response.redirect(redirect_path)
+
+
+@hookimpl
+def startup(datasette):
+    async def inner():
+        await datasette.get_internal_database().execute_write_fn(
+            lambda conn: migration.apply(Database(conn))
+        )
+
+    return inner
 
 
 async def save_query(datasette, request):
@@ -110,10 +129,6 @@ async def save_query(datasette, request):
     except KeyError:
         datasette.add_message(request, f"Database not found", datasette.ERROR)
         return Response.redirect("/")
-    # Run migrations
-    await datasette.get_internal_database().execute_write_fn(
-        lambda conn: migration.apply(Database(conn))
-    )
 
     # Check if URL exists already for this database
     db = datasette.get_database(database)
@@ -194,43 +209,57 @@ def top_query(datasette, request, database, sql):
 
 
 @hookimpl
-def query_actions(datasette, actor, database, query_name, request, sql, params):
-    if query_name is None:
-        return []
-    db_name = database
-    js = f"""
+def query_actions(datasette, actor, database, query_name):
+    async def inner():
+        if query_name is None:
+            return []
+        if not actor:
+            return []
+        print("Checking permissions for", actor, "on", database)
+        if not await datasette.permission_allowed(actor, "datasette-queries"):
+            return []
+        # Check query exists in our database
+        internal_db = datasette.get_internal_database()
+        query_exists = await internal_db.execute(
+            "select 1 from _datasette_queries where slug = ? and database = ?",
+            [query_name, database],
+        )
+        if not query_exists.rows:
+            return []
+        js = f"""
+        function run() {{
+            const queryName={json.dumps(query_name)};
+            const dbName={json.dumps(database)};
+            if (confirm("Are you sure you want to delete this query?")) {{
+                fetch(`{datasette.urls.database(database)}/-/datasette-queries/delete-query?fetch=1`, {{
+                    method: "POST",
+                    headers: {{
+                        "Content-Type": "application/json",
+                    }},
+                    body: JSON.stringify({{
+                        query_name: queryName,
+                        db_name: dbName
+                    }})
 
-    function run() {{
-        const queryName={json.dumps(query_name)};
-        const dbName={json.dumps(db_name)};
-        if (confirm("Are you sure you want to delete this query?")) {{
-            fetch(`{datasette.urls.database(database)}/-/datasette-queries/delete-query?fetch=1`, {{
-                method: "POST",
-                headers: {{
-                    "Content-Type": "application/json",
-                }},
-                body: JSON.stringify({{
-                    query_name: queryName,
-                    db_name: dbName
-                }})
-
-            }}).then(response => {{
-                if (response.ok) {{
-                    response.text().then(text => {{
-                        window.location.href = JSON.parse(text).redirect_path;
-                    }});
-                }} else {{
-                    alert("Failed to delete query");
-                }}
-            }});
+                }}).then(response => {{
+                    if (response.ok) {{
+                        response.text().then(text => {{
+                            window.location.href = JSON.parse(text).redirect_path;
+                        }});
+                    }} else {{
+                        alert("Failed to delete query");
+                    }}
+                }});
+            }}
         }}
-    }}
-    run();
-    """
-    return [
-        {
-            "label": "Delete query",
-            "description": "",
-            "href": f"javascript:{(js)}",
-        }
-    ]
+        run();
+        """
+        return [
+            {
+                "label": "Delete query",
+                "description": "Delete this saved query",
+                "href": f"javascript:{(js)}",
+            }
+        ]
+
+    return inner

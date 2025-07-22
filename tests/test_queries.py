@@ -1,6 +1,7 @@
 from datasette.app import Datasette
-import sqlite_utils
 import pytest
+import sqlite_utils
+import time
 
 
 @pytest.mark.asyncio
@@ -168,3 +169,81 @@ async def test_save_query_name_collision_with_table_or_view(
     r5 = await datasette.client.get(f"/data/{expected_slug}.json?_shape=array")
     assert r5.status_code == 200
     assert r5.json() == [{"1": 1}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "scenario,can_delete",
+    (
+        ("unauthenticated", False),
+        ("no_permission", False),
+        ("authenticated", True),
+        ("authenticated_query_not_in_db", False),
+    ),
+)
+async def test_delete_permissions(tmpdir, scenario, can_delete):
+    db_path = str(tmpdir / "data.db")
+    internal_path = str(tmpdir / "internal.db")
+    sqlite_utils.Database(db_path).vacuum()
+
+    datasette = Datasette(
+        [db_path],
+        internal=internal_path,
+        config={
+            "databases": {"data": {"queries": {"from-config": {"sql": "select 1"}}}},
+            "permissions": {"datasette-queries": {"id": "user1"}},
+        },
+    )
+    await datasette.invoke_startup()
+
+    cookies = {}
+    if scenario == "no_permission":
+        cookies = {"ds_actor": datasette.client.actor_cookie({"id": "user2"})}
+    elif scenario in ("authenticated", "authenticated_query_not_in_db"):
+        cookies = {"ds_actor": datasette.client.actor_cookie({"id": "user1"})}
+
+    # Create a query to delete
+    if scenario != "authenticated_query_not_in_db":
+        await datasette.get_internal_database().execute_write(
+            """
+            insert into _datasette_queries (slug, database, title, description, sql, actor, created_at)
+            values ('test-query', 'data', '', '', 'select 1', 'user1', :created_at)
+            """,
+            {"created_at": int(time.time())},
+        )
+
+    query_to_delete = "test-query"
+    if scenario == "authenticated_query_not_in_db":
+        query_to_delete = "from-config"
+
+    # Check if the delete button is shown
+    response = await datasette.client.get(
+        f"/data/{query_to_delete}",
+        cookies=cookies,
+    )
+    assert response.status_code == 200
+    if can_delete:
+        assert "Delete this saved query" in response.text
+    else:
+        assert "Delete this saved query" not in response.text
+
+    # Attempt to delete the query
+    response2 = await datasette.client.post(
+        "/data/-/datasette-queries/delete-query",
+        json={
+            "db_name": "data",
+            "query_name": query_to_delete,
+            "csrftoken": cookies.get("ds_csrftoken", ""),
+        },
+        cookies=cookies,
+    )
+
+    if can_delete:
+        assert response2.status_code == 302
+        assert (
+            await datasette.get_internal_database().execute(
+                "select slug from _datasette_queries where slug = 'test-query'"
+            )
+        ).rows == []
+    else:
+        assert response2.status_code == 403
