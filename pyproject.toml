@@ -1,6 +1,6 @@
 [project]
 name = "datasette-queries"
-version = "0.1.1"
+version = "0.1.2"
 description = "Save SQL queries in Datasette"
 readme = "README.md"
 authors = [{name = "Simon Willison"}]
