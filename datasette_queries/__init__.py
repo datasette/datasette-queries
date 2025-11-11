@@ -1,5 +1,5 @@
-from datasette import hookimpl, Response
-from markupsafe import escape
+from datasette import Response, hookimpl
+from datasette.permissions import Action
 from sqlite_migrate import Migrations
 from sqlite_utils import Database
 import json
@@ -25,6 +25,16 @@ def create_table(db):
         pk="slug",
     )
     db["_datasette_queries"].create_index(["slug", "database"], unique=True)
+
+
+@hookimpl
+def register_actions():
+    return [
+        Action(
+            name="datasette-queries",
+            description="Save and manage Datasette canned queries",
+        )
+    ]
 
 
 @hookimpl
@@ -62,7 +72,10 @@ def slugify(text):
 
 
 async def delete_query(datasette, request):
-    if not await datasette.permission_allowed(request.actor, "datasette-queries"):
+    if not await datasette.allowed(
+        actor=request.actor,
+        action="datasette-queries",
+    ):
         return Response.text("Permission denied", status=403)
     if request.method != "POST":
         return Response.json({"error": "POST request required"}, status=400)
@@ -111,7 +124,10 @@ def startup(datasette):
 
 
 async def save_query(datasette, request):
-    if not await datasette.permission_allowed(request.actor, "datasette-queries"):
+    if not await datasette.allowed(
+        actor=request.actor,
+        action="datasette-queries",
+    ):
         return Response.text("Permission denied", status=403)
     if request.method != "POST":
         return Response.json({"error": "POST request required"}, status=400)
@@ -193,8 +209,9 @@ def register_routes():
 @hookimpl
 def top_query(datasette, request, database, sql):
     async def inner():
-        if sql and await datasette.permission_allowed(
-            request.actor, "datasette-queries"
+        if sql and await datasette.allowed(
+            actor=request.actor,
+            action="datasette-queries",
         ):
             return await datasette.render_template(
                 "_datasette_queries_top.html",
@@ -216,7 +233,10 @@ def query_actions(datasette, actor, database, query_name):
         if not actor:
             return []
         print("Checking permissions for", actor, "on", database)
-        if not await datasette.permission_allowed(actor, "datasette-queries"):
+        if not await datasette.allowed(
+            actor=actor,
+            action="datasette-queries",
+        ):
             return []
         # Check query exists in our database
         internal_db = datasette.get_internal_database()
